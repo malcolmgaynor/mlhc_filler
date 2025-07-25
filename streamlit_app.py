@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import numpy as np
-from io import StringIO
+import matplotlib.pyplot as plt
+import seaborn as sns
+from mpl_toolkits.mplot3d import Axes3D
 
 # Page configuration
 st.set_page_config(
@@ -61,12 +61,12 @@ with col3:
 
 st.markdown("---")
 
-# Determine what to display based on selections
-def create_3d_heatmap():
-    """Create 3D heatmap showing all data"""
-    fig = go.Figure()
+# Helper function to create 3D visualization using matplotlib
+def create_3d_plot():
+    """Create 3D scatter plot showing all data points"""
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(111, projection='3d')
     
-    # Create data for 3D surface
     c_drugs = ['C.1', 'C.2', 'C.3']
     a_drugs = ['A.1', 'A.2', 'A.3']
     b_drugs = ['B.1', 'B.2', 'B.3']
@@ -75,36 +75,38 @@ def create_3d_heatmap():
     
     for i, c_drug in enumerate(c_drugs):
         df = data[c_drug]
-        z_values = []
         
-        for b_drug in b_drugs:
-            row = []
-            for a_drug in a_drugs:
-                row.append(df.loc[b_drug, a_drug])
-            z_values.append(row)
+        # Create coordinate arrays
+        a_coords = []
+        b_coords = []
+        values = []
         
-        # Create surface for each C drug
-        fig.add_trace(go.Surface(
-            z=z_values,
-            x=a_drugs,
-            y=b_drugs,
-            name=c_drug,
-            colorscale=[[0, colors[i]], [1, colors[i]]],
-            opacity=0.7,
-            showscale=True if i == 0 else False
-        ))
+        for j, a_drug in enumerate(a_drugs):
+            for k, b_drug in enumerate(b_drugs):
+                a_coords.append(j)
+                b_coords.append(k)
+                values.append(df.loc[b_drug, a_drug])
+        
+        # Create scatter plot for this C drug
+        scatter = ax.scatter(a_coords, b_coords, values, 
+                           c=colors[i], label=c_drug, s=100, alpha=0.7)
+        
+        # Add value labels
+        for j, (a, b, v) in enumerate(zip(a_coords, b_coords, values)):
+            ax.text(a, b, v, f'{v:.1f}', fontsize=8)
     
-    fig.update_layout(
-        title="3D Heatmap: Drug A vs Drug B Impact on Drug C Resistance",
-        scene=dict(
-            xaxis_title="Drug A",
-            yaxis_title="Drug B", 
-            zaxis_title="Impact Value",
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
-        ),
-        width=800,
-        height=600
-    )
+    ax.set_xlabel('Drug A')
+    ax.set_ylabel('Drug B') 
+    ax.set_zlabel('Impact Value')
+    ax.set_title('3D View: Drug A vs Drug B Impact on Drug C Resistance')
+    
+    # Set tick labels
+    ax.set_xticks(range(len(a_drugs)))
+    ax.set_xticklabels(a_drugs)
+    ax.set_yticks(range(len(b_drugs)))
+    ax.set_yticklabels(b_drugs)
+    
+    ax.legend()
     
     return fig
 
@@ -112,7 +114,6 @@ def create_2d_heatmap(selected_a=None):
     """Create 2D heatmap for specific Drug A vs all Drug B and C combinations"""
     if selected_a:
         # Show specific A vs all B, across all C
-        fig_data = []
         c_drugs = ['C.1', 'C.2', 'C.3']
         b_drugs = ['B.1', 'B.2', 'B.3']
         
@@ -123,28 +124,18 @@ def create_2d_heatmap(selected_a=None):
                 row.append(data[c_drug].loc[b_drug, selected_a])
             z_matrix.append(row)
         
-        fig = go.Figure(data=go.Heatmap(
-            z=z_matrix,
-            x=b_drugs,
-            y=c_drugs,
-            colorscale='RdBu',
-            zmid=0,
-            text=z_matrix,
-            texttemplate="%{text:.2f}",
-            textfont={"size": 12}
-        ))
+        df_heatmap = pd.DataFrame(z_matrix, index=c_drugs, columns=b_drugs)
         
-        fig.update_layout(
-            title=f"Impact of {selected_a} vs Drug B on Drug C Resistance",
-            xaxis_title="Drug B",
-            yaxis_title="Drug C",
-            width=600,
-            height=400
-        )
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.heatmap(df_heatmap, annot=True, cmap='RdBu_r', center=0, 
+                   ax=ax, fmt='.2f', cbar_kws={'label': 'Impact Value'})
+        ax.set_title(f'Impact of {selected_a} vs Drug B on Drug C Resistance')
+        ax.set_xlabel('Drug B')
+        ax.set_ylabel('Drug C')
         
         return fig
     else:
-        return create_3d_heatmap()
+        return create_3d_plot()
 
 def create_bar_chart(selected_a=None, selected_b=None, selected_c=None):
     """Create bar chart based on selections"""
@@ -153,55 +144,49 @@ def create_bar_chart(selected_a=None, selected_b=None, selected_c=None):
         # Single comparison
         value = data[selected_c].loc[selected_b, selected_a]
         
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=[value],
-            y=[f"{selected_a} vs {selected_b} → {selected_c}"],
-            orientation='h',
-            marker_color='green' if value > 0 else 'red',
-            text=[f"{value:.2f}"],
-            textposition='auto'
-        ))
+        fig, ax = plt.subplots(figsize=(8, 3))
+        color = 'green' if value > 0 else 'red'
         
-        fig.update_layout(
-            title=f"Impact: {selected_a} vs {selected_b} on {selected_c} Resistance",
-            xaxis_title="Impact Value (Positive = Drug A Preferred)",
-            width=600,
-            height=200,
-            xaxis=dict(range=[-3, 3])
-        )
+        bars = ax.barh([f"{selected_a} vs {selected_b} → {selected_c}"], [value], 
+                      color=color, alpha=0.7)
         
-        return fig, f"Using {selected_a} instead of {selected_b} results in a {abs(value):.2f} {'increase' if value < 0 else 'decrease'} in resistance to {selected_c}. {'Drug A is preferred.' if value > 0 else 'Drug B is preferred.' if value < 0 else 'No significant difference.'}"
+        # Add value label on bar
+        ax.text(value/2 if value != 0 else 0.1, 0, f'{value:.2f}', 
+               ha='center', va='center', fontweight='bold')
+        
+        ax.set_xlabel('Impact Value (Positive = Drug A Preferred)')
+        ax.set_title(f'Impact: {selected_a} vs {selected_b} on {selected_c} Resistance')
+        ax.axvline(x=0, color='black', linestyle='-', alpha=0.3)
+        ax.set_xlim(-3, 3)
+        
+        description = f"Using {selected_a} instead of {selected_b} results in a {abs(value):.2f} {'increase' if value < 0 else 'decrease'} in resistance to {selected_c}. {'Drug A is preferred.' if value > 0 else 'Drug B is preferred.' if value < 0 else 'No significant difference.'}"
+        
+        return fig, description
     
     elif selected_a and selected_b:
         # Compare across all C drugs
         c_drugs = ['C.1', 'C.2', 'C.3']
         values = []
         labels = []
+        colors = []
         
         for c_drug in c_drugs:
             value = data[c_drug].loc[selected_b, selected_a]
             values.append(value)
             labels.append(f"{selected_a} vs {selected_b} → {c_drug}")
+            colors.append('green' if value > 0 else 'red')
         
-        fig = go.Figure()
-        colors = ['green' if v > 0 else 'red' for v in values]
+        fig, ax = plt.subplots(figsize=(10, 4))
+        bars = ax.barh(labels, values, color=colors, alpha=0.7)
         
-        fig.add_trace(go.Bar(
-            x=values,
-            y=labels,
-            orientation='h',
-            marker_color=colors,
-            text=[f"{v:.2f}" for v in values],
-            textposition='auto'
-        ))
+        # Add value labels
+        for i, (bar, value) in enumerate(zip(bars, values)):
+            ax.text(value/2 if value != 0 else 0.1, i, f'{value:.2f}', 
+                   ha='center', va='center', fontweight='bold')
         
-        fig.update_layout(
-            title=f"Impact: {selected_a} vs {selected_b} on All Drug C Resistance",
-            xaxis_title="Impact Value (Positive = Drug A Preferred)",
-            width=700,
-            height=300
-        )
+        ax.set_xlabel('Impact Value (Positive = Drug A Preferred)')
+        ax.set_title(f'Impact: {selected_a} vs {selected_b} on All Drug C Resistance')
+        ax.axvline(x=0, color='black', linestyle='-', alpha=0.3)
         
         return fig, None
     
@@ -212,30 +197,25 @@ def create_bar_chart(selected_a=None, selected_b=None, selected_c=None):
             b_drugs = ['B.1', 'B.2', 'B.3']
             values = []
             labels = []
+            colors = []
             
             for b_drug in b_drugs:
                 value = data[selected_c].loc[b_drug, selected_a]
                 values.append(value)
                 labels.append(f"{selected_a} vs {b_drug}")
+                colors.append('green' if value > 0 else 'red')
             
-            fig = go.Figure()
-            colors = ['green' if v > 0 else 'red' for v in values]
+            fig, ax = plt.subplots(figsize=(10, 4))
+            bars = ax.barh(labels, values, color=colors, alpha=0.7)
             
-            fig.add_trace(go.Bar(
-                x=values,
-                y=labels,
-                orientation='h',
-                marker_color=colors,
-                text=[f"{v:.2f}" for v in values],
-                textposition='auto'
-            ))
+            # Add value labels
+            for i, (bar, value) in enumerate(zip(bars, values)):
+                ax.text(value/2 if value != 0 else 0.1, i, f'{value:.2f}', 
+                       ha='center', va='center', fontweight='bold')
             
-            fig.update_layout(
-                title=f"Impact: {selected_a} vs All Drug B on {selected_c} Resistance",
-                xaxis_title="Impact Value (Positive = Drug A Preferred)",
-                width=700,
-                height=300
-            )
+            ax.set_xlabel('Impact Value (Positive = Drug A Preferred)')
+            ax.set_title(f'Impact: {selected_a} vs All Drug B on {selected_c} Resistance')
+            ax.axvline(x=0, color='black', linestyle='-', alpha=0.3)
             
             return fig, None
         else:
@@ -243,40 +223,35 @@ def create_bar_chart(selected_a=None, selected_b=None, selected_c=None):
             df = data[selected_c]
             values = []
             labels = []
+            colors = []
             
             for b_drug in df.index:
                 for a_drug in df.columns:
                     value = df.loc[b_drug, a_drug]
                     values.append(value)
                     labels.append(f"{a_drug} vs {b_drug}")
+                    colors.append('green' if value > 0 else 'red')
             
-            fig = go.Figure()
-            colors = ['green' if v > 0 else 'red' for v in values]
+            fig, ax = plt.subplots(figsize=(10, 8))
+            bars = ax.barh(labels, values, color=colors, alpha=0.7)
             
-            fig.add_trace(go.Bar(
-                x=values,
-                y=labels,
-                orientation='h',
-                marker_color=colors,
-                text=[f"{v:.2f}" for v in values],
-                textposition='auto'
-            ))
+            # Add value labels
+            for i, (bar, value) in enumerate(zip(bars, values)):
+                ax.text(value/2 if value != 0 else 0.1, i, f'{value:.2f}', 
+                       ha='center', va='center', fontweight='bold')
             
-            fig.update_layout(
-                title=f"All Drug A vs Drug B Impact on {selected_c} Resistance",
-                xaxis_title="Impact Value (Positive = Drug A Preferred)",
-                width=700,
-                height=500
-            )
+            ax.set_xlabel('Impact Value (Positive = Drug A Preferred)')
+            ax.set_title(f'All Drug A vs Drug B Impact on {selected_c} Resistance')
+            ax.axvline(x=0, color='black', linestyle='-', alpha=0.3)
             
             return fig, None
 
 # Display logic based on selections
 if not drug_a and not drug_b and not drug_c:
-    # No inputs - show 3D heatmap
+    # No inputs - show 3D plot
     st.subheader("3D Overview: All Drug Interactions")
-    fig = create_3d_heatmap()
-    st.plotly_chart(fig, use_container_width=True)
+    fig = create_3d_plot()
+    st.pyplot(fig)
     
     st.info("💡 **Interpretation:** Positive values indicate Drug A is preferred over Drug B for reducing resistance to Drug C")
 
@@ -284,7 +259,7 @@ elif drug_a and not drug_b and not drug_c:
     # A input only - show 2D heatmap
     st.subheader(f"Impact Analysis: {drug_a} vs All Drug B Options")
     fig = create_2d_heatmap(drug_a)
-    st.plotly_chart(fig, use_container_width=True)
+    st.pyplot(fig)
     
     st.info(f"💡 **Interpretation:** Shows how {drug_a} compares to all Drug B options across different Drug C resistance outcomes")
 
@@ -295,7 +270,7 @@ elif (drug_a and drug_b) or drug_c:
     
     if result:
         fig, description = result
-        st.plotly_chart(fig, use_container_width=True)
+        st.pyplot(fig)
         
         if description:
             st.success(f"📊 **Clinical Interpretation:** {description}")
@@ -303,12 +278,32 @@ elif (drug_a and drug_b) or drug_c:
     if drug_a and drug_b and drug_c:
         st.info("💡 **TMLE Approach:** This single comparison represents the targeted maximum likelihood estimation of the average treatment effect (ATE) for developing AMR.")
 
+# Add summary statistics
+st.subheader("📈 Summary Statistics")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Total Comparisons", "27")
+    
+with col2:
+    # Calculate percentage of positive values (Drug A preferred)
+    all_values = []
+    for df in data.values():
+        all_values.extend(df.values.flatten())
+    positive_pct = (np.array(all_values) > 0).mean() * 100
+    st.metric("Drug A Preferred (%)", f"{positive_pct:.1f}%")
+    
+with col3:
+    # Calculate average impact magnitude
+    avg_magnitude = np.mean(np.abs(all_values))
+    st.metric("Avg Impact Magnitude", f"{avg_magnitude:.2f}")
+
 # Data summary
 with st.expander("📊 View Raw Data"):
     st.subheader("Raw Impact Data")
     for c_drug, df in data.items():
         st.write(f"**{c_drug} Resistance Impact:**")
-        st.dataframe(df)
+        st.dataframe(df, use_container_width=True)
         st.write("")
 
 # Methodology note
@@ -320,4 +315,16 @@ with st.expander("🔬 Methodology"):
     - **Data:** Observational data with inclusion/exclusion criteria similar to clinical trials
     - **Values:** Positive numbers indicate Drug A is preferred over Drug B
     - **Clinical Application:** Helps clinicians make evidence-based decisions about antibiotic selection to minimize future resistance development
+    - **Color Coding:** Green bars = Drug A preferred, Red bars = Drug B preferred
+    """)
+
+# Instructions
+with st.expander("📋 How to Use"):
+    st.markdown("""
+    1. **No Selection:** View 3D overview of all drug interactions
+    2. **Select Drug A Only:** See heatmap comparing selected Drug A vs all Drug B options
+    3. **Select Drug A + B:** Compare the pair across all Drug C resistance outcomes  
+    4. **Select Drug C Only:** See all Drug A vs B combinations for that resistance outcome
+    5. **Select A + C:** See Drug A vs all Drug B for specific resistance outcome
+    6. **Select All Three:** Get specific comparison with clinical interpretation
     """)
